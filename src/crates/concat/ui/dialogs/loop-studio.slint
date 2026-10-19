@@ -1,0 +1,766 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { Button, DialogRow, DialogSection, Field, Progress } from "../primitives/modal.slint";
+import { NumberField } from "../primitives/number-field.slint";
+import { Select } from "../primitives/select.slint";
+import { Switch } from "../inspector/controls.slint";
+import { Rail } from "../inspector/controls.slint";
+import { PaneScroll } from "../workspace/pane.slint";
+
+// ── Data structs ─────────────────────────────────────────────────────────────
+
+export enum LoopPhase { idle, generating, done, failed }
+export enum LoopSourceMode { single, folder, shuffle }
+export enum LoopCrossfadeType { crossfade, dissolve, jump-cut, mirror }
+
+export struct LoopStudioData {
+    open: bool,
+    /// Current wizard step: 0=Source, 1=Audio, 2=Loop Settings, 3=Generate
+    step: int,
+
+    // Step 0 – Source
+    source-path: string,
+    source-mode: int,     // LoopSourceMode index
+
+    // Step 1 – Audio
+    music-path: string,
+    music-volume: float,   // 0.0–1.0
+    ambient-path: string,
+    ambient-volume: float, // 0.0–1.0
+    audio-enabled: bool,
+
+    // Step 2 – Loop Settings
+    /// Target duration in seconds
+    target-duration: float,
+    /// Duration randomness in seconds (±N)
+    randomness: float,
+    crossfade-type: int,   // LoopCrossfadeType index
+    crossfade-duration: float, // seconds
+
+    // Step 3 – Generate
+    phase: LoopPhase,
+    progress: float,       // 0.0–1.0
+    progress-label: string,
+    error: string,
+}
+
+// ── Step indicator dot ────────────────────────────────────────────────────────
+
+component StepDot inherits Rectangle {
+    in property <bool> active;
+    in property <bool> done;
+    in property <int> number;
+
+    width: 24px;
+    height: 24px;
+    border-radius: self.width / 2;
+    background: root.active ? Theme.accent
+        : root.done ? Theme.accent-soft
+        : Theme.field;
+    border-width: 1px;
+    border-color: root.active ? Theme.accent
+        : root.done ? Theme.accent
+        : Theme.line;
+
+    animate background, border-color { duration: 150ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: self.preferred-width;
+        height: self.preferred-height;
+        text: root.done ? "✓" : "\{root.number}";
+        color: root.active ? Theme.on-accent
+            : root.done ? Theme.accent
+            : Theme.fg-muted;
+        font-size: Theme.fs-sm;
+        font-weight: Theme.weight-title;
+    }
+}
+
+// ── Step connector line ───────────────────────────────────────────────────────
+
+component StepLine inherits Rectangle {
+    in property <bool> done;
+    height: 1px;
+    horizontal-stretch: 1;
+    background: root.done ? Theme.accent : Theme.line;
+    animate background { duration: 150ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+}
+
+// ── Volume slider row ─────────────────────────────────────────────────────────
+
+component VolumeRow inherits HorizontalLayout {
+    in property <string> label;
+    in-out property <float> value;   // 0.0–1.0
+    callback changed(v: float);
+
+    spacing: 10px;
+    min-height: 28px;
+
+    Text {
+        width: 78px;
+        text: root.label;
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    // Simple drag-based slider using Rail from controls.slint
+    Rail {
+        horizontal-stretch: 1;
+        value: root.value;
+        minimum: 0.0;
+        maximum: 1.0;
+        changed(v) => {
+            root.value = v;
+            root.changed(v);
+        }
+    }
+
+    Text {
+        width: 34px;
+        text: Math.round(root.value * 100) + "%";
+        color: Theme.fg-dim;
+        font-size: Theme.fs-sm;
+        font-family: Theme.font-technical;
+        vertical-alignment: center;
+        horizontal-alignment: right;
+    }
+}
+
+// ── Main Loop Studio Dialog ───────────────────────────────────────────────────
+
+export component LoopStudioDialog inherits Rectangle {
+    in property <bool> fill;
+    in property <LoopStudioData> data;
+    in property <length> inset-top: 0px;
+    in property <length> inset-bottom: 0px;
+    in property <length> inset-left: 0px;
+    in property <length> inset-right: 0px;
+
+    // Wizard navigation
+    callback next();
+    callback back();
+    callback closed();
+
+    // Source step
+    callback browse-source();
+    callback source-mode-changed(index: int);
+
+    // Audio step
+    callback browse-music();
+    callback browse-ambient();
+    callback music-volume-changed(v: float);
+    callback ambient-volume-changed(v: float);
+    callback audio-enabled-changed(on: bool);
+
+    // Loop Settings step
+    callback duration-changed(seconds: float);
+    callback randomness-changed(seconds: float);
+    callback crossfade-type-changed(index: int);
+    callback crossfade-duration-changed(seconds: float);
+
+    // Generate step
+    callback generate();
+    callback cancel-generate();
+    callback done-add-to-timeline();
+    callback done-close();
+
+    // Not visible when closed
+    visible: root.data.open;
+
+    // Full-window scrim, same as ExportDialog / SettingsDialog pattern
+    Rectangle {
+        background: Theme.scrim;
+        opacity: root.data.open ? 1.0 : 0.0;
+        animate opacity { duration: 200ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    }
+
+    // The sheet card – centred, max 540px wide, matching export dialog's look
+    sheet := Rectangle {
+        x: root.inset-left + (root.width - root.inset-left - root.inset-right - self.width) / 2;
+        y: root.inset-top + (root.height - root.inset-top - root.inset-bottom - self.height) / 2;
+        width: min(540px, root.width - root.inset-left - root.inset-right - 32px);
+        height: min(content.preferred-height, root.height - root.inset-top - root.inset-bottom - 48px);
+        border-radius: Theme.r-lg;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.line;
+        clip: true;
+
+        content := VerticalLayout {
+            width: parent.width;
+
+            // ── Header ────────────────────────────────────────────────────
+            Rectangle {
+                height: 48px;
+                background: Theme.panel;
+                border-width: 0px;
+
+                // Close button (top-right corner)
+                Rectangle {
+                    x: parent.width - self.width - 8px;
+                    y: (parent.height - self.height) / 2;
+                    width: 28px;
+                    height: 28px;
+                    border-radius: Theme.r-sm;
+                    background: shut.has-hover ? Theme.field : Colors.transparent;
+
+                    Icon {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        glyph: Glyph.close;
+                        size: 14px;
+                        tint: shut.has-hover ? Theme.fg : Theme.fg-muted;
+                    }
+
+                    shut := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.closed(); }
+                    }
+                }
+
+                // Centred title + icon
+                HorizontalLayout {
+                    x: (parent.width - self.preferred-width) / 2;
+                    y: 0;
+                    width: self.preferred-width;
+                    height: parent.height;
+                    spacing: 8px;
+
+                    VerticalLayout {
+                        alignment: center;
+                        Text {
+                            text: "↺";
+                            color: Theme.accent;
+                            font-size: 18px;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    Text {
+                        text: "Generate Loop";
+                        color: Theme.fg;
+                        font-size: Theme.fs-lg;
+                        font-weight: Theme.weight-title;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // Divider
+            Rectangle { height: 1px; background: Theme.line; }
+
+            // ── Step indicator ────────────────────────────────────────────
+            HorizontalLayout {
+                padding: 16px;
+                padding-top: 14px;
+                padding-bottom: 14px;
+                spacing: 6px;
+                alignment: center;
+
+                StepDot {
+                    number: 1;
+                    active: root.data.step == 0;
+                    done: root.data.step > 0;
+                }
+                StepLine { done: root.data.step > 0; }
+                StepDot {
+                    number: 2;
+                    active: root.data.step == 1;
+                    done: root.data.step > 1;
+                }
+                StepLine { done: root.data.step > 1; }
+                StepDot {
+                    number: 3;
+                    active: root.data.step == 2;
+                    done: root.data.step > 2;
+                }
+                StepLine { done: root.data.step > 2; }
+                StepDot {
+                    number: 4;
+                    active: root.data.step == 3;
+                    done: root.data.phase == LoopPhase.done;
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.line; }
+
+            // ── Body (scrollable) ─────────────────────────────────────────
+            PaneScroll {
+                vertical-stretch: 1;
+
+                VerticalLayout {
+                    padding: 14px;
+                    padding-top: 10px;
+                    spacing: 0px;
+
+                    // ── STEP 0: Source ────────────────────────────────────
+                    if root.data.step == 0: VerticalLayout {
+                        spacing: 0px;
+
+                        DialogSection {
+                            title: "Video Source";
+                            open: true;
+
+                            DialogRow { label: "Mode"; }
+
+                            // Source mode segmented control (single / folder / shuffle)
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                padding-bottom: 6px;
+                                spacing: 6px;
+
+                                for item[i] in ["Single file", "Folder", "Shuffle folder"]: Rectangle {
+                                    height: 28px;
+                                    horizontal-stretch: 1;
+                                    border-radius: Theme.r-sm;
+                                    background: root.data.source-mode == i
+                                        ? (mode-touch.has-hover ? Theme.accent-hover : Theme.accent)
+                                        : (mode-touch.has-hover ? Theme.field-hover : Theme.field);
+                                    border-width: 1px;
+                                    border-color: root.data.source-mode == i ? Theme.accent : Theme.line;
+
+                                    animate background, border-color { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+                                    Text {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        width: self.preferred-width;
+                                        height: self.preferred-height;
+                                        text: item;
+                                        color: root.data.source-mode == i ? Theme.on-accent : Theme.fg;
+                                        font-size: Theme.fs-sm;
+                                        font-weight: root.data.source-mode == i ? Theme.weight-title : 400;
+                                    }
+
+                                    property <int> _i: i;
+                                    mode-touch := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { root.source-mode-changed(_i); }
+                                    }
+                                }
+                            }
+
+                            DialogRow { label: root.data.source-mode == 0 ? "File" : "Folder"; }
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                padding-bottom: 10px;
+                                spacing: 6px;
+
+                                Field {
+                                    horizontal-stretch: 1;
+                                    value: root.data.source-path;
+                                    placeholder: root.data.source-mode == 0
+                                        ? "Select video file…"
+                                        : "Select folder…";
+                                    technical: true;
+                                    edited(t) => { }
+                                }
+
+                                // Browse button
+                                Rectangle {
+                                    width: 64px;
+                                    height: 28px;
+                                    border-radius: Theme.r-sm;
+                                    background: browse-touch.has-hover ? Theme.field-hover : Theme.field;
+                                    border-width: 1px;
+                                    border-color: Theme.line;
+
+                                    Text {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        width: self.preferred-width;
+                                        height: self.preferred-height;
+                                        text: "Browse";
+                                        color: Theme.fg;
+                                        font-size: Theme.fs-sm;
+                                    }
+
+                                    browse-touch := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { root.browse-source(); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ── STEP 1: Audio ─────────────────────────────────────
+                    if root.data.step == 1: VerticalLayout {
+                        spacing: 0px;
+
+                        DialogSection {
+                            title: "Audio";
+                            open: true;
+                            switchable: true;
+                            on: root.data.audio-enabled;
+                            switched(v) => { root.audio-enabled-changed(v); }
+
+                            // Music track
+                            DialogRow { label: "Music"; }
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                padding-bottom: 4px;
+                                spacing: 6px;
+
+                                Field {
+                                    horizontal-stretch: 1;
+                                    value: root.data.music-path;
+                                    placeholder: "Select music file…";
+                                    technical: true;
+                                    edited(t) => { }
+                                }
+
+                                Rectangle {
+                                    width: 64px;
+                                    height: 28px;
+                                    border-radius: Theme.r-sm;
+                                    background: music-browse.has-hover ? Theme.field-hover : Theme.field;
+                                    border-width: 1px;
+                                    border-color: Theme.line;
+
+                                    Text {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        width: self.preferred-width;
+                                        height: self.preferred-height;
+                                        text: "Browse";
+                                        color: Theme.fg;
+                                        font-size: Theme.fs-sm;
+                                    }
+
+                                    music-browse := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { root.browse-music(); }
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                padding-bottom: 10px;
+
+                                VolumeRow {
+                                    label: "Volume";
+                                    horizontal-stretch: 1;
+                                    value: root.data.music-volume;
+                                    changed(v) => { root.music-volume-changed(v); }
+                                }
+                            }
+
+                            // Ambient track
+                            DialogRow { label: "Ambient"; }
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                padding-bottom: 4px;
+                                spacing: 6px;
+
+                                Field {
+                                    horizontal-stretch: 1;
+                                    value: root.data.ambient-path;
+                                    placeholder: "Select ambient file (optional)…";
+                                    technical: true;
+                                    edited(t) => { }
+                                }
+
+                                Rectangle {
+                                    width: 64px;
+                                    height: 28px;
+                                    border-radius: Theme.r-sm;
+                                    background: amb-browse.has-hover ? Theme.field-hover : Theme.field;
+                                    border-width: 1px;
+                                    border-color: Theme.line;
+
+                                    Text {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        width: self.preferred-width;
+                                        height: self.preferred-height;
+                                        text: "Browse";
+                                        color: Theme.fg;
+                                        font-size: Theme.fs-sm;
+                                    }
+
+                                    amb-browse := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { root.browse-ambient(); }
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                padding-bottom: 10px;
+
+                                VolumeRow {
+                                    label: "Volume";
+                                    horizontal-stretch: 1;
+                                    value: root.data.ambient-volume;
+                                    changed(v) => { root.ambient-volume-changed(v); }
+                                }
+                            }
+                        }
+                    }
+
+                    // ── STEP 2: Loop Settings ─────────────────────────────
+                    if root.data.step == 2: VerticalLayout {
+                        spacing: 0px;
+
+                        DialogSection {
+                            title: "Loop Settings";
+                            open: true;
+
+                            // Target Duration
+                            DialogRow { label: "Duration"; }
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                padding-bottom: 4px;
+                                spacing: 6px;
+
+                                NumberField {
+                                    horizontal-stretch: 1;
+                                    value: root.data.target-duration;
+                                    minimum: 1.0;
+                                    maximum: 3600.0;
+                                    step: 1.0;
+                                    precision: 0;
+                                    changed(v) => { root.duration-changed(v); }
+                                }
+
+                                Text {
+                                    width: self.preferred-width;
+                                    text: "seconds";
+                                    color: Theme.fg-muted;
+                                    font-size: Theme.fs;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            // Duration Randomness
+                            DialogRow { label: "Randomness"; }
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                padding-bottom: 4px;
+                                spacing: 6px;
+
+                                Text {
+                                    width: self.preferred-width;
+                                    text: "±";
+                                    color: Theme.fg-muted;
+                                    font-size: Theme.fs-lg;
+                                    vertical-alignment: center;
+                                }
+
+                                NumberField {
+                                    horizontal-stretch: 1;
+                                    value: root.data.randomness;
+                                    minimum: 0.0;
+                                    maximum: 60.0;
+                                    step: 0.5;
+                                    precision: 1;
+                                    changed(v) => { root.randomness-changed(v); }
+                                }
+
+                                Text {
+                                    width: self.preferred-width;
+                                    text: "s  (anti-duplicate)";
+                                    color: Theme.fg-muted;
+                                    font-size: Theme.fs;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            // Crossfade Type
+                            DialogRow { label: "Crossfade"; }
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                padding-bottom: 4px;
+
+                                Select {
+                                    horizontal-stretch: 1;
+                                    options: ["Crossfade", "Dissolve", "Jump Cut", "Mirror"];
+                                    current: root.data.crossfade-type;
+                                    changed(i) => { root.crossfade-type-changed(i); }
+                                }
+                            }
+
+                            // Crossfade Duration
+                            DialogRow { label: "Fade length"; }
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                padding-bottom: 10px;
+                                spacing: 6px;
+
+                                NumberField {
+                                    horizontal-stretch: 1;
+                                    value: root.data.crossfade-duration;
+                                    minimum: 0.0;
+                                    maximum: 5.0;
+                                    step: 0.1;
+                                    precision: 1;
+                                    changed(v) => { root.crossfade-duration-changed(v); }
+                                }
+
+                                Text {
+                                    width: self.preferred-width;
+                                    text: "seconds";
+                                    color: Theme.fg-muted;
+                                    font-size: Theme.fs;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+
+                    // ── STEP 3: Generate ──────────────────────────────────
+                    if root.data.step == 3: VerticalLayout {
+                        spacing: 0px;
+
+                        DialogSection {
+                            title: "Summary";
+                            open: true;
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                padding-bottom: 6px;
+                                spacing: 0px;
+
+                                VerticalLayout {
+                                    spacing: 6px;
+
+                                    Text {
+                                        text: "Source: " + root.data.source-path;
+                                        color: Theme.fg-muted;
+                                        font-size: Theme.fs-sm;
+                                        font-family: Theme.font-technical;
+                                        overflow: elide;
+                                    }
+
+                                    Text {
+                                        text: "Duration: " + Math.round(root.data.target-duration) + "s  ± " + root.data.randomness + "s";
+                                        color: Theme.fg-muted;
+                                        font-size: Theme.fs-sm;
+                                    }
+
+                                    Text {
+                                        text: "Crossfade: " + (root.data.crossfade-type == 0 ? "Crossfade"
+                                            : root.data.crossfade-type == 1 ? "Dissolve"
+                                            : root.data.crossfade-type == 2 ? "Jump Cut"
+                                            : "Mirror") + "  " + root.data.crossfade-duration + "s";
+                                        color: Theme.fg-muted;
+                                        font-size: Theme.fs-sm;
+                                    }
+
+                                    if root.data.audio-enabled && root.data.music-path != "": Text {
+                                        text: "Music: " + root.data.music-path;
+                                        color: Theme.fg-muted;
+                                        font-size: Theme.fs-sm;
+                                        font-family: Theme.font-technical;
+                                        overflow: elide;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Progress / error area
+                        if root.data.phase == LoopPhase.generating || root.data.phase == LoopPhase.done || root.data.phase == LoopPhase.failed: VerticalLayout {
+                            padding-top: 10px;
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            padding-bottom: 6px;
+                            spacing: 8px;
+
+                            if root.data.phase == LoopPhase.generating: Progress {
+                                value: root.data.progress;
+                            }
+
+                            Text {
+                                text: root.data.phase == LoopPhase.failed
+                                    ? root.data.error
+                                    : root.data.progress-label;
+                                color: root.data.phase == LoopPhase.failed ? Theme.danger : Theme.fg-muted;
+                                font-size: Theme.fs-sm;
+                                horizontal-alignment: center;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Footer ────────────────────────────────────────────────────
+            Rectangle { height: 1px; background: Theme.line; }
+
+            HorizontalLayout {
+                padding: 14px;
+                spacing: 8px;
+
+                // Back button (steps 1-3)
+                if root.data.step > 0 && root.data.phase != LoopPhase.generating && root.data.phase != LoopPhase.done: Button {
+                    label: "← Back";
+                    clicked => { root.back(); }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                // Cancel during generation
+                if root.data.phase == LoopPhase.generating: Button {
+                    label: "Cancel";
+                    clicked => { root.cancel-generate(); }
+                }
+
+                // Add to Timeline after done
+                if root.data.phase == LoopPhase.done: Button {
+                    label: "Add to Timeline";
+                    primary: true;
+                    clicked => { root.done-add-to-timeline(); }
+                }
+                if root.data.phase == LoopPhase.done: Button {
+                    label: "Close";
+                    clicked => { root.done-close(); }
+                }
+
+                // Next / Generate buttons
+                if root.data.phase != LoopPhase.generating && root.data.phase != LoopPhase.done: Button {
+                    label: root.data.step < 3 ? "Next →"
+                        : root.data.phase == LoopPhase.failed ? "Retry"
+                        : "Generate";
+                    primary: true;
+                    enabled: root.data.source-path != "" || root.data.step != 0;
+                    clicked => {
+                        if (root.data.step < 3) {
+                            root.next();
+                        } else {
+                            root.generate();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

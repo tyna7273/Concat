@@ -1004,6 +1004,8 @@ pub struct Studio {
     pub meters: crate::meters::MeterFeed,
     /// The voiceover take, while one runs.
     pub voiceover: crate::panes::voiceover::VoiceoverPane,
+    /// The Loop Studio wizard state.
+    pub loop_studio: crate::panes::loop_studio::LoopStudioPane,
     /// Every speaker the voice engine offers, in its own order.
     /// The looks the Text page offers; see `presets`.
     pub text_presets: Vec<TextPreset>,
@@ -2332,6 +2334,7 @@ impl Studio {
             source: None,
             meters: crate::meters::MeterFeed::default(),
             voiceover: crate::panes::voiceover::VoiceoverPane::default(),
+            loop_studio: crate::panes::loop_studio::LoopStudioPane::new(),
             text_presets,
             installed_fonts: presets::installed_fonts(&host.dirs),
             system_fonts: Vec::new(),
@@ -8476,7 +8479,29 @@ impl Studio {
                 pane.update(msg, self);
                 self.lanes = pane;
             }
+            crate::panes::Msg::LoopStudio(msg) => {
+                let action = self.loop_studio.handle(msg);
+                if let Some(crate::panes::loop_studio::LoopStudioAction::ImportToProject(path)) = action {
+                    self.handle(crate::panes::Msg::Media(crate::panes::media_bin::MediaMsg::Import(vec![path])));
+                }
+            }
         }
+    }
+
+    /// Push the Loop Studio pane's state to the Slint window.
+    pub fn publish_loop_studio(&self, app: &crate::ui::App) {
+        app.set_loop_studio(self.loop_studio.data().clone());
+    }
+
+    /// Schedule a Loop Studio publish on the Slint event loop.
+    /// Used from background/file-picker callbacks that run outside normal publish.
+    pub fn publish_loop_studio_deferred(&self) {
+        let data = self.loop_studio.data().clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            crate::host::Shell::with(|_shell, app| {
+                app.set_loop_studio(data);
+            });
+        });
     }
 
     // ── speech ──
@@ -10854,6 +10879,7 @@ impl Studio {
         sync(&models.version_details, self.settings.version_details());
         app.set_relink(self.relink.data());
         app.set_confirm(self.confirm_data());
+        app.set_loop_studio(self.loop_studio.data().clone());
 
         // The speech sheets, and the lists they choose from.
         let transcribers = installed(&self.settings.transcribers);

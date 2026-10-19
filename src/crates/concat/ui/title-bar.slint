@@ -148,6 +148,7 @@ export component TitleBar inherits Rectangle {
     /// A view was picked from the add-panel list.
     callback add-pane(kind: PaneKind);
     callback export-clicked();
+    callback loop-studio-clicked();
 
     height: 32px;
     // The window's ground, not a panel's: the strip is the frame the panes
@@ -272,6 +273,46 @@ export component TitleBar inherits Rectangle {
             HeaderIconButton {
                 glyph: Glyph.settings;
                 clicked => { root.open-settings(); }
+            }
+        }
+
+        // Generate Loop button — opens the Loop Studio wizard
+        if !root.minimal: VerticalLayout {
+            alignment: center;
+            padding-left: 4px;
+
+            loop-btn := Rectangle {
+                width: loop-label.width + loop-icon-text.width + 20px;
+                height: 24px;
+                border-radius: Theme.r-sm;
+                background: loop-touch.has-hover ? Theme.field-hover : Theme.field;
+                border-width: 1px;
+                border-color: loop-touch.has-hover ? Theme.line-strong : Theme.line;
+
+                animate background, border-color { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+                loop-icon-text := Text {
+                    x: 7px;
+                    y: (parent.height - self.height) / 2;
+                    text: "↺";
+                    color: Theme.fg-muted;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
+
+                loop-label := Text {
+                    x: loop-icon-text.x + loop-icon-text.width + 4px;
+                    y: (parent.height - self.height) / 2;
+                    text: "Generate Loop";
+                    color: Theme.fg-muted;
+                    font-size: Theme.fs;
+                    font-weight: Theme.weight-title;
+                }
+
+                loop-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.loop-studio-clicked(); }
+                }
             }
         }
 

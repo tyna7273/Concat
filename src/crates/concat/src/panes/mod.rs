@@ -17,6 +17,7 @@
 pub mod captions;
 pub mod export;
 pub mod glide;
+pub mod loop_studio;
 pub mod media_bin;
 pub mod monitor;
 pub mod pace;
@@ -56,6 +57,8 @@ pub enum Msg {
     Voiceover(voiceover::VoiceoverMsg),
     /// To the library's Audio page.
     Sounds(sounds::SoundsMsg),
+    /// To the Loop Studio wizard.
+    LoopStudio(loop_studio::LoopStudioMsg),
 }
 
 /// What a message says in the log: the activity trail of what the person

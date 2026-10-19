@@ -31,6 +31,7 @@ import { CaptionsDialog, CaptionsSheetData } from "dialogs/captions.slint";
 import { SpeechDialog, SpeechSheetData } from "dialogs/speech.slint";
 import { AvatarData } from "primitives/avatar.slint";
 import { VoiceoverData, VoiceoverPanel } from "dialogs/voiceover.slint";
+import { LoopStudioData, LoopStudioDialog, LoopPhase } from "dialogs/loop-studio.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
 import { Editor } from "editor.slint";
 import { PaneKind, Panes } from "workspace/pane-switcher.slint";
@@ -292,6 +293,26 @@ export component App inherits Window {
 
     callback open-settings();
     callback export-clicked();
+
+    // ── Loop Studio ───────────────────────────────────────────────────────
+    in property <LoopStudioData> loop-studio;
+    callback loop-studio-closed();
+    callback loop-studio-next();
+    callback loop-studio-back();
+    callback loop-studio-browse-source();
+    callback loop-studio-source-mode-changed(index: int);
+    callback loop-studio-browse-music();
+    callback loop-studio-browse-ambient();
+    callback loop-studio-music-volume-changed(v: float);
+    callback loop-studio-ambient-volume-changed(v: float);
+    callback loop-studio-audio-enabled-changed(on: bool);
+    callback loop-studio-duration-changed(seconds: float);
+    callback loop-studio-randomness-changed(seconds: float);
+    callback loop-studio-crossfade-type-changed(index: int);
+    callback loop-studio-crossfade-duration-changed(seconds: float);
+    callback loop-studio-generate();
+    callback loop-studio-cancel-generate();
+    callback loop-studio-add-to-timeline();
 
     /// The project sheet, opened from the Details panel.
     in property <ProjectSheetData> project-sheet;
@@ -580,6 +601,7 @@ export component App inherits Window {
                 open-settings => { root.open-settings(); }
                 add-pane(kind) => { Editor.dock-add(kind); }
                 export-clicked => { root.export-clicked(); }
+                loop-studio-clicked => { root.loop-studio-next(); }
             }
 
             if root.on-start: StartScreen {
@@ -816,6 +838,39 @@ export component App inherits Window {
         cancel => { root.export-cancel(); }
         reveal => { root.export-reveal(); }
         again => { root.export-again(); }
+    }
+
+    // ── Loop Studio dialog ────────────────────────────────────────────────
+    LoopStudioDialog {
+        fill: root.sheets-fill;
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        data: root.loop-studio;
+
+        closed => { root.loop-studio-closed(); }
+        next => { root.loop-studio-next(); }
+        back => { root.loop-studio-back(); }
+        browse-source => { root.loop-studio-browse-source(); }
+        source-mode-changed(i) => { root.loop-studio-source-mode-changed(i); }
+        browse-music => { root.loop-studio-browse-music(); }
+        browse-ambient => { root.loop-studio-browse-ambient(); }
+        music-volume-changed(v) => { root.loop-studio-music-volume-changed(v); }
+        ambient-volume-changed(v) => { root.loop-studio-ambient-volume-changed(v); }
+        audio-enabled-changed(on) => { root.loop-studio-audio-enabled-changed(on); }
+        duration-changed(s) => { root.loop-studio-duration-changed(s); }
+        randomness-changed(s) => { root.loop-studio-randomness-changed(s); }
+        crossfade-type-changed(i) => { root.loop-studio-crossfade-type-changed(i); }
+        crossfade-duration-changed(s) => { root.loop-studio-crossfade-duration-changed(s); }
+        generate => { root.loop-studio-generate(); }
+        cancel-generate => { root.loop-studio-cancel-generate(); }
+        done-add-to-timeline => { root.loop-studio-add-to-timeline(); }
+        done-close => { root.loop-studio-closed(); }
     }
 
     SettingsDialog {

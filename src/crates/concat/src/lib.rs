@@ -62,6 +62,7 @@ mod panes;
 mod prefs;
 mod presets;
 mod source;
+mod loop_studio;
 mod studio;
 mod sysinfo;
 /// Native Wayland file drops, which winit does not report; see the module.
@@ -105,6 +106,7 @@ use panes::speech::SpeechMsg;
 use panes::start::StartMsg;
 use panes::timeline::TimelineMsg;
 use panes::voiceover::VoiceoverMsg;
+use panes::loop_studio::LoopStudioMsg;
 use studio::{ASPECTS, Models, OUTPUTS, RATES, SIZES, Studio};
 use ui::*;
 
@@ -1866,7 +1868,143 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         state.handle(Msg::Export(ExportMsg::Start));
     }));
 
-    // ── settings ──
+    // ── Loop Studio ───────────────────────────────────────────────────────────
+    app.on_loop_studio_next(on_window!(|state| {
+        state.handle(Msg::LoopStudio(LoopStudioMsg::Open));
+    }));
+    app.on_loop_studio_closed(on_window!(|state| {
+        state.handle(Msg::LoopStudio(LoopStudioMsg::Close));
+    }));
+    app.on_loop_studio_back(on_window!(|state| {
+        state.handle(Msg::LoopStudio(LoopStudioMsg::Back));
+    }));
+    app.on_loop_studio_source_mode_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::LoopStudio(LoopStudioMsg::SourceModeChanged(index)));
+    }));
+    app.on_loop_studio_music_volume_changed(on_window!(|state, v: f32| {
+        state.handle(Msg::LoopStudio(LoopStudioMsg::MusicVolumeChanged(v)));
+    }));
+    app.on_loop_studio_ambient_volume_changed(on_window!(|state, v: f32| {
+        state.handle(Msg::LoopStudio(LoopStudioMsg::AmbientVolumeChanged(v)));
+    }));
+    app.on_loop_studio_audio_enabled_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::LoopStudio(LoopStudioMsg::AudioEnabledChanged(on)));
+    }));
+    app.on_loop_studio_duration_changed(on_window!(|state, s: f32| {
+        state.handle(Msg::LoopStudio(LoopStudioMsg::DurationChanged(s)));
+    }));
+    app.on_loop_studio_randomness_changed(on_window!(|state, s: f32| {
+        state.handle(Msg::LoopStudio(LoopStudioMsg::RandomnessChanged(s)));
+    }));
+    app.on_loop_studio_crossfade_type_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::LoopStudio(LoopStudioMsg::CrossfadeTypeChanged(index)));
+    }));
+    app.on_loop_studio_crossfade_duration_changed(on_window!(|state, s: f32| {
+        state.handle(Msg::LoopStudio(LoopStudioMsg::CrossfadeDurationChanged(s)));
+    }));
+    app.on_loop_studio_cancel_generate(on_window!(|state| {
+        state.handle(Msg::LoopStudio(LoopStudioMsg::CancelGenerate));
+    }));
+    app.on_loop_studio_add_to_timeline(on_window!(|state| {
+        state.handle(Msg::LoopStudio(LoopStudioMsg::AddToTimeline));
+    }));
+
+    // Browse source — native file picker (video files)
+    app.on_loop_studio_browse_source(|| {
+        Shell::with(|shell, _| {
+            if shell.studio.borrow().session.is_none() {
+                return;
+            }
+            host::pick_files_then(
+                "Select Video Source".to_string(),
+                Some(("Video".to_string(), &["mp4", "mov", "mkv", "webm", "avi", "m4v"])),
+                |studio, _app, _models, paths| {
+                    studio.handle(Msg::LoopStudio(LoopStudioMsg::BrowseSource(
+                        paths.into_iter().map(|p| p.to_string_lossy().into_owned()).collect(),
+                    )));
+                    studio.publish_loop_studio_deferred();
+                },
+            );
+        });
+    });
+    // Browse music — audio file picker
+    app.on_loop_studio_browse_music(|| {
+        Shell::with(|shell, _| {
+            if shell.studio.borrow().session.is_none() {
+                return;
+            }
+            host::pick_files_then(
+                "Select Music Track".to_string(),
+                Some(("Audio".to_string(), &["mp3", "wav", "aac", "m4a", "flac", "ogg"])),
+                |studio, _app, _models, paths| {
+                    studio.handle(Msg::LoopStudio(LoopStudioMsg::BrowseMusic(
+                        paths.into_iter().map(|p| p.to_string_lossy().into_owned()).collect(),
+                    )));
+                    studio.publish_loop_studio_deferred();
+                },
+            );
+        });
+    });
+    // Browse ambient — audio file picker
+    app.on_loop_studio_browse_ambient(|| {
+        Shell::with(|shell, _| {
+            if shell.studio.borrow().session.is_none() {
+                return;
+            }
+            host::pick_files_then(
+                "Select Ambient Track".to_string(),
+                Some(("Audio".to_string(), &["mp3", "wav", "aac", "m4a", "flac", "ogg"])),
+                |studio, _app, _models, paths| {
+                    studio.handle(Msg::LoopStudio(LoopStudioMsg::BrowseAmbient(
+                        paths.into_iter().map(|p| p.to_string_lossy().into_owned()).collect(),
+                    )));
+                    studio.publish_loop_studio_deferred();
+                },
+            );
+        });
+    });
+    // Generate — spawn background FFmpeg worker
+    app.on_loop_studio_generate(on_window!(|state| {
+        use crate::loop_studio::generate_loop;
+        use crate::panes::loop_studio::LoopStudioAction;
+
+        let action = state
+            .loop_studio
+            .handle(LoopStudioMsg::Generate);
+
+        if let Some(LoopStudioAction::SpawnGenerate { config, cancel }) = action {
+            std::thread::spawn(move || {
+                let result = generate_loop(
+                    config,
+                    cancel,
+                    |progress| {
+                        // Called from worker thread — schedule UI update on event loop
+                        let _ = slint::invoke_from_event_loop(move || {
+                            Shell::with(|shell, app| {
+                                shell
+                                    .studio
+                                    .borrow_mut()
+                                    .handle(Msg::LoopStudio(LoopStudioMsg::Progress(progress)));
+                                shell.studio.borrow().publish_loop_studio(&app);
+                            });
+                        });
+                    },
+                );
+                let msg = match result {
+                    Ok(r) => LoopStudioMsg::Done(r),
+                    Err(e) => LoopStudioMsg::Failed(e),
+                };
+                let _ = slint::invoke_from_event_loop(move || {
+                    Shell::with(|shell, app| {
+                        shell.studio.borrow_mut().handle(Msg::LoopStudio(msg));
+                        shell.studio.borrow().publish_loop_studio(&app);
+                    });
+                });
+            });
+        }
+    }));
+
+
     app.on_settings_page_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Settings(SettingsMsg::PageChanged(index)));
     }));
