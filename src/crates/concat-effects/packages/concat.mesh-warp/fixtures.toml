@@ -1,0 +1,24 @@
+# Fixtures for concat.mesh-warp
+# The mesh-warp effect displaces UV coordinates; at strength=0 (min) the
+# displacement is zero so the output equals the input exactly. At centre
+# (pin_x=50, pin_y=50) with default strength the centre pixel is sampled
+# from its own UV, so it also passes through unchanged. The max probe tests
+# full-strength bulge: the centre pixel still reads from UV (0.5,0.5) so
+# it is invariant; edge pixels would shift but the test input is uniform.
+
+[[probe]]
+name = "default — uniform grey passes through"
+input = [0.35, 0.35, 0.35, 1.0]
+expect = [0.35, 0.35, 0.35, 1.0]
+
+[[probe]]
+name = "minimum — zero strength, pixel unchanged"
+at = "min"
+input = [0.5, 0.3, 0.2, 1.0]
+expect = [0.5, 0.3, 0.2, 1.0]
+
+[[probe]]
+name = "maximum — full strength, uniform frame unchanged"
+at = "max"
+input = [0.6, 0.4, 0.2, 1.0]
+expect = [0.6, 0.4, 0.2, 1.0]

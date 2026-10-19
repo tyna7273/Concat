@@ -1,0 +1,80 @@
+format = 2
+
+[effect]
+id = "concat.mesh-warp"
+name = "Mesh Warp"
+kind = "effect"
+category = "Distort"
+order = 10
+intensity = "strength"
+description = "Deforms the video through a grid of control points. Push and pull any region of the frame to reshape, stretch, or bulge the image — like bending a rubber sheet."
+
+[[param]]
+key = "strength"
+label = "Strength"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "cols"
+label = "Grid Columns"
+min = 2
+max = 16
+default = 6
+step = 1
+unit = ""
+
+[[param]]
+key = "rows"
+label = "Grid Rows"
+min = 2
+max = 16
+default = 6
+step = 1
+unit = ""
+
+[[param]]
+key = "pin_x"
+label = "Warp Centre X"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "pin_y"
+label = "Warp Centre Y"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "radius"
+label = "Warp Radius"
+min = 1
+max = 100
+default = 40
+step = 1
+unit = "%"
+
+[[param]]
+key = "mode"
+label = "Mode"
+min = 0
+max = 2
+default = 0
+step = 1
+unit = ""
+
+[wgsl]
+entry = "effect.wgsl"
+space = "display"

@@ -1,0 +1,75 @@
+name: Build Concat macOS (Mesh Warp)
+
+on:
+  push:
+    branches: [ "mesh-warp" ]
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    name: Build macOS arm64
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Install build dependencies
+        run: |
+          brew install cmake ninja ffmpeg python3
+          python3 -m pip install --break-system-packages certifi
+          /Applications/Python\ 3.*/Install\ Certificates.command || true
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build Concat (quick profile)
+        working-directory: src
+        run: |
+          cargo build -p concat --profile quick
+        env:
+          COPYFILE_DISABLE: "1"
+          CARGO_INCREMENTAL: "1"
+
+      - name: Package .app bundle
+        run: |
+          mkdir -p Concat.app/Contents/MacOS
+          mkdir -p Concat.app/Contents/Resources
+          cp src/target/quick/concat Concat.app/Contents/MacOS/Concat
+          cat > Concat.app/Contents/Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key><string>Concat</string>
+            <key>CFBundleIdentifier</key><string>io.concat.app</string>
+            <key>CFBundleName</key><string>Concat</string>
+            <key>CFBundleVersion</key><string>0.2.7-mesh-warp</string>
+            <key>CFBundleShortVersionString</key><string>0.2.7</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          EOF
+          zip -r Concat-mesh-warp-macos-arm64.zip Concat.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Concat-mesh-warp-macos-arm64
+          path: Concat-mesh-warp-macos-arm64.zip
+          retention-days: 30
