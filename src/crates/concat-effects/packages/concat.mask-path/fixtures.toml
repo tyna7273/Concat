@@ -1,0 +1,21 @@
+# Fixtures for concat.mask-path
+# The mask path effect cuts out the alpha outside of the defined polygon.
+# At default parameters, the polygon is a box from (0.25, 0.25) to (0.75, 0.75),
+# so the centre probe at (0.5, 0.5) is inside and preserves full opacity.
+
+[[probe]]
+name = "default — centre of the default polygon mask remains visible"
+input = [0.35, 0.35, 0.35, 1.0]
+expect = [0.35, 0.35, 0.35, 1.0]
+
+[[probe]]
+name = "minimum — zero opacity slider leaves pixel unchanged"
+at = "min"
+input = [0.5, 0.3, 0.2, 1.0]
+expect = [0.5, 0.3, 0.2, 1.0]
+
+[[probe]]
+name = "maximum — full opacity, inside pixel remains fully opaque"
+at = "max"
+input = [0.6, 0.4, 0.2, 1.0]
+expect = [0.6, 0.4, 0.2, 1.0]

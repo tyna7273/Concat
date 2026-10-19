@@ -1,0 +1,222 @@
+format = 2
+
+[effect]
+id = "concat.mask-path"
+name = "Mask Path (Pen Tool)"
+kind = "effect"
+category = "Cutout"
+order = 1
+intensity = "opacity"
+description = "Pen tool custom mask path. Define polygon or bezier anchor points to cut out, isolate, or mask any subject or region of the video."
+
+[[param]]
+key = "points"
+label = "Points Count"
+min = 3
+max = 8
+default = 4
+step = 1
+unit = ""
+
+[[param]]
+key = "feather"
+label = "Feather"
+min = 0
+max = 100
+default = 0
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "invert"
+label = "Invert"
+min = 0
+max = 1
+default = 0
+step = 1
+unit = ""
+
+[[param]]
+key = "opacity"
+label = "Opacity"
+min = 0
+max = 100
+default = 100
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "roundness"
+label = "Curvature"
+min = 0
+max = 100
+default = 0
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "p1_x"
+label = "Point 1 X"
+min = 0
+max = 100
+default = 25
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "p1_y"
+label = "Point 1 Y"
+min = 0
+max = 100
+default = 25
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "p2_x"
+label = "Point 2 X"
+min = 0
+max = 100
+default = 75
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "p2_y"
+label = "Point 2 Y"
+min = 0
+max = 100
+default = 25
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "p3_x"
+label = "Point 3 X"
+min = 0
+max = 100
+default = 75
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "p3_y"
+label = "Point 3 Y"
+min = 0
+max = 100
+default = 75
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "p4_x"
+label = "Point 4 X"
+min = 0
+max = 100
+default = 25
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "p4_y"
+label = "Point 4 Y"
+min = 0
+max = 100
+default = 75
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "p5_x"
+label = "Point 5 X"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "p5_y"
+label = "Point 5 Y"
+min = 0
+max = 100
+default = 85
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "p6_x"
+label = "Point 6 X"
+min = 0
+max = 100
+default = 15
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "p6_y"
+label = "Point 6 Y"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "p7_x"
+label = "Point 7 X"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "p7_y"
+label = "Point 7 Y"
+min = 0
+max = 100
+default = 15
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "p8_x"
+label = "Point 8 X"
+min = 0
+max = 100
+default = 85
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "p8_y"
+label = "Point 8 Y"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+animate = true
+
+[wgsl]
+entry = "effect.wgsl"
+space = "display"
